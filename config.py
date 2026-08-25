@@ -94,6 +94,15 @@ ROUTING_TABLE = {
     },
 }
 
+# Maps the router Form's "Proposal Type" radio option labels (verbatim, as
+# they appear on the Form) to ROUTING_TABLE's canonical type keys. Lets a
+# salesperson's manual Form selection override AI classification.
+PROPOSAL_TYPE_FORM_LABELS = {
+    "Uncharted Ice": "uncharted_ice",
+    "Keynote": "keynote",
+    "Interactive Keynote": "interactive_keynote",
+}
+
 
 def fire_token_for(proposal_type: str) -> str:
     """Bearer token for directly firing ROUTING_TABLE[proposal_type]'s routine

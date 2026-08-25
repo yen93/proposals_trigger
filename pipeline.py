@@ -1,8 +1,10 @@
-"""Orchestrates the proposal router: for every new Form response, classify
-which of the 3 existing proposal pipelines it belongs to, then hand it off
-by forwarding the original attachment as an email carrying that pipeline's
-expected subject line — the only way to feed it an attachment without
-touching that pipeline's code, since all 3 only trigger from a Gmail search.
+"""Orchestrates the proposal router: for every new Form response, determine
+which of the 3 existing proposal pipelines it belongs to — using the
+salesperson's manual "Proposal Type" Form selection when present, otherwise
+falling back to AI classification — then hand it off by forwarding the
+original attachment as an email carrying that pipeline's expected subject
+line — the only way to feed it an attachment without touching that
+pipeline's code, since all 3 only trigger from a Gmail search.
 
 After forwarding, this also fires the downstream routine directly via
 src/trigger_fire_service.py (a plain authenticated HTTP call, not the
@@ -30,9 +32,21 @@ def _process_response(clients: GoogleClients, supabase, response: dict) -> None:
 
     try:
         file_bytes = router_form_service.download_response_file(clients.drive, response["file_id"])
-        classification = classifier_service.classify(file_bytes, response["mime_type"], additional_notes)
-        confidence = classification["confidence"]
-        proposal_type = classification["proposal_type"]
+        manual_proposal_type = response.get("manual_proposal_type", "")
+
+        if manual_proposal_type:
+            proposal_type = manual_proposal_type
+            confidence = "high"
+            classification = {
+                "proposal_type": proposal_type,
+                "confidence": confidence,
+                "reasoning": "Salesperson manually selected this proposal type on the Form.",
+            }
+            log.info("Response %s: using manually selected proposal type %s", response_id, proposal_type)
+        else:
+            classification = classifier_service.classify(file_bytes, response["mime_type"], additional_notes)
+            confidence = classification["confidence"]
+            proposal_type = classification["proposal_type"]
 
         if confidence == "low":
             notice = gmail_forwarder.build_manual_review_message(
@@ -69,8 +83,9 @@ def _process_response(clients: GoogleClients, supabase, response: dict) -> None:
             text=f"Fired by proposal-router-hourly after classifying a new submission as {proposal_type}.",
         )
         log.info(
-            "Response %s: routed to %s (trigger %s)%s",
+            "Response %s: routed to %s (trigger %s)%s%s",
             response_id, proposal_type, routing["trigger_id"],
+            " [manual]" if manual_proposal_type else " [AI]",
             " — fired immediately" if fired else " — not fired directly, relying on its own hourly cron",
         )
 

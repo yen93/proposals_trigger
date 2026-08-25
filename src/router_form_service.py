@@ -1,9 +1,9 @@
 """Reads submissions from the "Demo Notes Router Intake" Google Form via the
-Forms API — a 2-item form (file upload + optional free-text notes), unlike
-sales_proposals_automation's intake form which also carries client_org/
-contact_name/event_date/proposal_type answers. There is no proposal-type
-field here: that's inferred by src/classifier_service.py instead of typed
-by the salesperson.
+Forms API — a 3-item form: file upload, optional free-text notes, and an
+optional "Proposal Type" radio field. When the salesperson picks a Proposal
+Type on the Form, pipeline.py uses it as-is and skips AI classification
+entirely; left blank, the type is inferred by src/classifier_service.py as
+before.
 
 The Form must have items with these EXACT titles (case-sensitive) for the
 field mapping below to find them.
@@ -13,6 +13,7 @@ import config
 
 FILE_UPLOAD_ITEM_TITLE = "Demo call notes"
 NOTES_ITEM_TITLE = "Additional notes"
+PROPOSAL_TYPE_ITEM_TITLE = "Proposal Type"
 
 
 def _build_question_id_map(forms_client) -> dict:
@@ -31,8 +32,12 @@ def _build_question_id_map(forms_client) -> dict:
 
 
 def list_new_responses(forms_client) -> list[dict]:
-    """Returns [{response_id, file_id, filename, mime_type, additional_notes}, ...]
-    for every response that has a file-upload answer. Callers are responsible
+    """Returns [{response_id, file_id, filename, mime_type, additional_notes,
+    manual_proposal_type}, ...] for every response that has a file-upload
+    answer. manual_proposal_type is "" when the salesperson left the
+    "Proposal Type" field blank (or picked something not in
+    config.PROPOSAL_TYPE_FORM_LABELS), signaling pipeline.py to fall back to
+    AI classification. Callers are responsible
     for the Supabase dedup check — this always lists ALL responses on the
     form (fine at this form's expected volume; Forms API supports a
     timestamp filter if that stops being true).
@@ -51,6 +56,7 @@ def list_new_responses(forms_client) -> list[dict]:
             "check the form matches src/router_form_service.py's expected titles."
         )
     notes_question_id = title_to_question_id.get(NOTES_ITEM_TITLE)
+    proposal_type_question_id = title_to_question_id.get(PROPOSAL_TYPE_ITEM_TITLE)
 
     results = []
     page_token = None
@@ -74,6 +80,12 @@ def list_new_responses(forms_client) -> list[dict]:
                 text_answers = answers.get(notes_question_id, {}).get("textAnswers", {}).get("answers", [])
                 additional_notes = text_answers[0]["value"] if text_answers else ""
 
+            manual_proposal_type = ""
+            if proposal_type_question_id:
+                text_answers = answers.get(proposal_type_question_id, {}).get("textAnswers", {}).get("answers", [])
+                if text_answers:
+                    manual_proposal_type = config.PROPOSAL_TYPE_FORM_LABELS.get(text_answers[0]["value"], "")
+
             results.append(
                 {
                     "response_id": response["responseId"],
@@ -81,6 +93,7 @@ def list_new_responses(forms_client) -> list[dict]:
                     "filename": first_file.get("fileName", ""),
                     "mime_type": first_file.get("mimeType", "application/octet-stream"),
                     "additional_notes": additional_notes,
+                    "manual_proposal_type": manual_proposal_type,
                 }
             )
 

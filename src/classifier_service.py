@@ -2,6 +2,9 @@
 types via Claude vision, by reading which format option is circled, checked,
 or otherwise marked as selected on the sheet.
 
+Only invoked as a fallback: pipeline.py skips this entirely when the
+salesperson already picked a "Proposal Type" on the router Form.
+
 UNVALIDATED: this has not yet been run against a real sample of the demo-notes
 sheet's format-checkbox section for any of the 3 types. Test it against real
 samples per type before trusting its output in production — misrouting sends
