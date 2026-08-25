@@ -1,0 +1,10 @@
+[
+  {
+    "notification_recipients": [
+      "julienne@myadventuregroup.com.au",
+      "liv@myadventuregroup.com.au"
+    ],
+    "mailbox_address": "julienne@myadventuregroup.com.au",
+    "router_form_id": ""
+  }
+]
