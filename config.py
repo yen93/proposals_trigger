@@ -80,16 +80,35 @@ ROUTING_TABLE = {
     "uncharted_ice": {
         "subject": "attached image",
         "trigger_id": "trig_01KNnjdscJ1KpMTEKqneqs1S",
+        "fire_token_env": "FIRE_TOKEN_UNCHARTED_ICE",
     },
     "keynote": {
         "subject": "Crossing the Ice Keynote demo notes",
         "trigger_id": "trig_01SJiDxNiKbNHHtBiUT2je93",
+        "fire_token_env": "FIRE_TOKEN_KEYNOTE",
     },
     "interactive_keynote": {
         "subject": "interactive keynote",
         "trigger_id": "trig_01KSh5tdtUWA1BXND9eNgR4R",
+        "fire_token_env": "FIRE_TOKEN_INTERACTIVE_KEYNOTE",
     },
 }
+
+
+def fire_token_for(proposal_type: str) -> str:
+    """Bearer token for directly firing ROUTING_TABLE[proposal_type]'s routine
+    via its bound-session HTTP fire endpoint (src/trigger_fire_service.py) --
+    NOT one of the Anthropic/Google/Supabase keys above. Each downstream
+    routine's fire endpoint requires its own token, minted via the claude.ai
+    UI -- a routine-run agent can only call the RemoteTrigger tool against
+    triggers it created itself, not these pre-existing http_api-created ones,
+    so this direct-HTTP path is the only way to fire them with no lag and no
+    human/agent babysitting (see src/trigger_fire_service.py's docstring).
+    Returns "" if unset; callers must treat that as "skip the direct fire,
+    rely on the downstream routine's own hourly cron instead" rather than
+    raising."""
+    env_name = ROUTING_TABLE[proposal_type]["fire_token_env"]
+    return os.environ.get(env_name, "")
 
 
 def require(*names: str) -> None:

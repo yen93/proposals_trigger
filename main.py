@@ -1,10 +1,10 @@
-"""Entrypoint — runs the router once. Intended to be invoked on a schedule
-(e.g. hourly via the routine's cron) so repeated runs are safe: the Supabase
-dedup check skips any Form response already processed.
+"""Entrypoint — runs the router once. Intended to be invoked on demand (via
+its webhook, see apps_script/) or on a schedule, so repeated runs are safe:
+the Supabase dedup check skips any Form response already processed.
 
-Deliberately does not call RemoteTrigger itself — see pipeline.py's module
-docstring. After this exits, the routine's own job_config prompt reads the
-`trigger_ids_to_fire: ...` stdout line (if printed) and fires each one.
+Fires each downstream pipeline itself, directly, via src/trigger_fire_service
+— see pipeline.py's module docstring for why that's a plain HTTP call rather
+than the RemoteTrigger Claude Code tool.
 """
 
 from pipeline import run_once

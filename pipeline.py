@@ -4,24 +4,26 @@ by forwarding the original attachment as an email carrying that pipeline's
 expected subject line — the only way to feed it an attachment without
 touching that pipeline's code, since all 3 only trigger from a Gmail search.
 
-main.py does NOT call RemoteTrigger itself (that tool only exists for a
-Claude Code agent, not this sandboxed script) — run_once() prints which
-trigger_id(s) need firing this run, and the routine's own job_config prompt
-parses that line and fires each one after this process exits. Same chaining
-pattern as sales_proposals_automation's job_config ("Step K").
+After forwarding, this also fires the downstream routine directly via
+src/trigger_fire_service.py (a plain authenticated HTTP call, not the
+RemoteTrigger Claude Code tool — a routine-run agent can only RemoteTrigger
+triggers it created itself, not these pre-existing ones, so main.py does the
+firing itself). That direct fire is a best-effort zero-lag optimization: if
+it fails or a fire token isn't configured, the forwarded email still
+guarantees the downstream routine's own hourly cron will pick it up.
 """
 
 import logging
 
 import config
-from src import classifier_service, gmail_forwarder, router_form_service, supabase_service
+from src import classifier_service, gmail_forwarder, router_form_service, supabase_service, trigger_fire_service
 from src.google_clients import GoogleClients
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("pipeline")
 
 
-def _process_response(clients: GoogleClients, supabase, response: dict, triggered_ids: set) -> None:
+def _process_response(clients: GoogleClients, supabase, response: dict) -> None:
     response_id = response["response_id"]
     filename = response["filename"]
     additional_notes = response["additional_notes"]
@@ -62,8 +64,15 @@ def _process_response(clients: GoogleClients, supabase, response: dict, triggere
             forwarded_message_id=sent["message_id"],
             filename=filename, additional_notes=additional_notes,
         )
-        triggered_ids.add(routing["trigger_id"])
-        log.info("Response %s: routed to %s (trigger %s)", response_id, proposal_type, routing["trigger_id"])
+        fired = trigger_fire_service.fire(
+            routing["trigger_id"], config.fire_token_for(proposal_type),
+            text=f"Fired by proposal-router-hourly after classifying a new submission as {proposal_type}.",
+        )
+        log.info(
+            "Response %s: routed to %s (trigger %s)%s",
+            response_id, proposal_type, routing["trigger_id"],
+            " — fired immediately" if fired else " — not fired directly, relying on its own hourly cron",
+        )
 
     except Exception as exc:
         log.exception("Failed to process response %s", response_id)
@@ -77,7 +86,6 @@ def run_once() -> None:
 
     clients = GoogleClients()
     supabase = supabase_service.get_client()
-    triggered_ids: set = set()
 
     responses = router_form_service.list_new_responses(clients.forms)
     log.info("Found %d form response(s)", len(responses))
@@ -85,7 +93,4 @@ def run_once() -> None:
     for response in responses:
         if supabase_service.is_processed(supabase, response["response_id"]):
             continue
-        _process_response(clients, supabase, response, triggered_ids)
-
-    if triggered_ids:
-        print(f"trigger_ids_to_fire: {','.join(sorted(triggered_ids))}")
+        _process_response(clients, supabase, response)
