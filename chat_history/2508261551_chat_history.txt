@@ -1,0 +1,116 @@
+================================================================================
+CHAT HISTORY EXPORT — 2026-08-25
+Session: Diagnose and fix why the deployed router's AI-classification
+fallback kept failing after the prior session's environment-variable
+migration — traced to a claude.ai platform reservation on the exact name
+"ANTHROPIC_API_KEY", fixed by renaming the variable the pipeline reads.
+================================================================================
+
+NOTE ON REDACTIONS: This session involved the real Anthropic API key and,
+once more, the full 9-value credential block (Google OAuth client id/
+secret/refresh token, Anthropic API key, Supabase URL/service key, three
+per-pipeline fire tokens) — pasted twice by the user for verification and
+once by the assistant in a direct chat reply (the user already owned the
+value and needed it for a legitimate cloud-environment UI field). None of
+these values are reproduced anywhere below; each is replaced with a
+[REDACTED_*] placeholder.
+
+--------------------------------------------------------------------------------
+USER:
+Relayed the deployed routine's own run report: 10 Form responses found, 9
+already processed, 1 new one had no manual Proposal Type selection so it
+needed AI classification — which failed because the Anthropic client
+couldn't resolve an API key. Logged as status=error in Supabase (won't
+retry), nothing routed.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Confirmed the diagnosis: the previous session's environment only had
+ANTHROPIC_BASE_URL set, not ANTHROPIC_API_KEY, so the AI-classification
+fallback path (only exercised by responses with no manual Proposal Type
+selection) had never actually been tested end-to-end before. Gave the
+user the [REDACTED_ANTHROPIC_API_KEY] value again directly in chat (a
+repeat of a value they already owned), and flagged proactively that
+supabase_service.mark_processed() marks a response permanently processed
+even on status="error" — so the failed response wouldn't auto-retry and
+would need its is_processed flag reset once the key was actually in place.
+
+--------------------------------------------------------------------------------
+USER:
+Pasted the full 9-value credential block again, asking "is this right?"
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Compared it line-by-line against the known-correct values from the prior
+session — all 9 matched exactly, including [REDACTED_ANTHROPIC_API_KEY].
+Flagged a side concern: the environment already had an unexplained
+ANTHROPIC_BASE_URL set, worth checking whether that was intentional (a
+proxy/regional endpoint) or stale, since it could interfere even with a
+correct key. Queried Supabase for the two response rows currently in
+status=error to have them ready to reset.
+
+--------------------------------------------------------------------------------
+USER:
+Reported another run with an identical outcome (still no ANTHROPIC_API_KEY
+resolvable), then added "note i already updated the envi var" and pasted
+the same 9-value block a third time.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Re-queried Supabase and found a third response now also in status=error
+(same missing-key cause). Reset all 3 rows' is_processed flag to false and
+fired a fresh test run via RemoteTrigger, then polled get_run_log through
+pip install and main.py execution. The run proceeded normally (no refusal
+this time, since the sanitized prompt carries no secrets to be suspicious
+of) but ultimately failed the same way: a direct in-run check
+(`os.environ.get('ANTHROPIC_API_KEY')`) confirmed the key still resolved
+to empty, and an explicit env-var listing (values redacted, just names)
+showed ANTHROPIC_BASE_URL present but no ANTHROPIC_API_KEY at all. All 3
+reset responses errored again identically. Reported this precisely rather
+than retrying blindly, and asked the user to double-check the exact
+variable name, whether a save/apply step was missed, and whether they were
+editing the same environment the trigger actually uses.
+
+--------------------------------------------------------------------------------
+USER:
+Shared the actual explanation: the environment-variables UI itself
+displays a note that "ANTHROPIC_API_KEY" won't be used to authenticate
+requests, since Claude Code sessions authenticate through the account.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Identified this as a platform-level reservation: claude.ai cloud
+environments silently never inject a user-supplied "ANTHROPIC_API_KEY"
+into the process environment at all, regardless of how correctly it's
+saved, because that exact name is reserved for the Claude Code session's
+own account-based authentication — matching everything observed
+empirically. Fixed it by renaming the variable the pipeline itself reads:
+config.py now sources ANTHROPIC_API_KEY (the internal Python name,
+unchanged so classifier_service.py needed no edits) from a new
+CLASSIFIER_ANTHROPIC_API_KEY environment variable instead, with a comment
+explaining why. Updated .env.example and apps_script/README.md's existing
+"never embed secrets in a routine's prompt" section to match, adding an
+explicit new warning about this specific reserved-name gotcha. Verified
+the change parses correctly.
+
+--------------------------------------------------------------------------------
+USER:
+"push it"
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Reviewed the diff (documentation/config-only, no secrets present), staged
+config.py, .env.example, and apps_script/README.md, committed
+(b554933, "Rename ANTHROPIC_API_KEY to CLASSIFIER_ANTHROPIC_API_KEY"), and
+pushed to origin/master successfully. Asked the user to remove
+ANTHROPIC_API_KEY from the "Default" cloud environment (it will never
+work there) and add CLASSIFIER_ANTHROPIC_API_KEY with the same value
+instead, after which the 3 stuck error rows can be reset and re-tested.
+
+--------------------------------------------------------------------------------
+USER:
+Asked to run the dcp skill again, which produced this export.
+
+--------------------------------------------------------------------------------
+END OF EXPORT
+================================================================================
