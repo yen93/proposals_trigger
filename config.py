@@ -43,9 +43,19 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 SUPABASE_LOG_TABLE = "proposal_router_logs"
 
+# Must match the exact scope set actually granted to GOOGLE_REFRESH_TOKEN at
+# consent time — this repo shares that token with sales_proposals_automation
+# (same Workspace identity), and Google's refresh grant rejects a requested
+# scope list that doesn't match what was originally consented (invalid_scope),
+# even if this repo only ever calls a subset of these APIs. Only send/read
+# scopes are actually used (gmail.send, drive, forms.responses.readonly);
+# gmail.modify/presentations are unused here but must stay listed for the
+# refresh to succeed against the shared token.
 GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/presentations",
     "https://www.googleapis.com/auth/forms.responses.readonly",
 ]
 
