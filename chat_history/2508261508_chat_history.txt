@@ -1,0 +1,227 @@
+================================================================================
+CHAT HISTORY EXPORT — 2026-08-25
+Session: Add a manual "Proposal Type" override to the router form (skip AI
+classification when the salesperson picks one), then discover and fix a
+serious live-secrets exposure in the deployed proposal-router-hourly
+routine's own stored prompt.
+================================================================================
+
+NOTE ON REDACTIONS: This session involved 8 real, live production
+credentials — Google OAuth client id/secret/refresh token, an Anthropic API
+key, a Supabase URL/service key, and three per-pipeline bearer "fire"
+tokens (FIRE_TOKEN_UNCHARTED_ICE / FIRE_TOKEN_KEYNOTE /
+FIRE_TOKEN_INTERACTIVE_KEYNOTE). These appeared repeatedly in RemoteTrigger
+tool responses (the routine's stored job_config), in ad-hoc verification
+scripts, and once in a direct chat reply (a copy-paste block given to the
+user at their request, since they already owned the values and needed them
+for a legitimate UI field). None of their actual values are reproduced
+anywhere below — every mention is replaced with a [REDACTED_*] placeholder.
+
+--------------------------------------------------------------------------------
+USER:
+Asked to modify the deployed "proposal-router-hourly" pipeline: a new
+"Proposal Type" field was added to the router's Google Form (radio choice:
+Uncharted Ice / Keynote / Interactive Keynote, optional, with a note that AI
+will decide if left blank). If the salesperson selects one, that should be
+used directly instead of the existing Claude-vision classification step.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Explored the codebase (src/router_form_service.py, pipeline.py, config.py,
+src/classifier_service.py) and confirmed the live form's actual field via a
+direct read-only Forms API call (title "Proposal Type", questionId
+6344201c, exact RADIO options "Uncharted Ice"/"Keynote"/"Interactive
+Keynote", not required). Wrote and got approval on a plan, then
+implemented:
+- config.py: added PROPOSAL_TYPE_FORM_LABELS mapping the Form's exact radio
+  labels to ROUTING_TABLE's canonical keys.
+- src/router_form_service.py: reads the new optional field the same
+  optional way as the existing notes field, returning
+  "manual_proposal_type" ("" if blank/unrecognized).
+- pipeline.py: _process_response() now branches before calling
+  classifier_service.classify() — if a manual type is present, uses it
+  directly with confidence forced to "high" and a synthetic reasoning
+  string, skipping AI entirely; otherwise unchanged AI-classification path.
+- Docstring updates in pipeline.py, router_form_service.py, and
+  classifier_service.py reflecting the new fallback relationship.
+Verified locally (python main.py against the real form/Supabase) that the
+existing AI-fallback path still worked correctly for a submission with no
+Proposal Type selected (correctly low-confidence on an intentionally
+ambiguous test PDF with all three format boxes marked, routed to manual
+review as designed).
+
+--------------------------------------------------------------------------------
+USER:
+Reported several rounds of the live deployed routine running successfully
+(various response counts, all correctly falling back to AI since those test
+submissions had no Proposal Type selected), then reported "i did explicitly
+select keynote, didnt work" after seeing a manual-review email for a
+submission that should have used the override.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Investigated directly: read the raw Forms API response and confirmed
+"Keynote" really was selected; checked the Supabase proposal_router_logs
+row and found this exact response_id had already been marked processed
+(needs_review, low confidence) by an earlier run, before the user edited
+the same response to add the Proposal Type answer — the router's dedup
+logic permanently skips a response_id once processed, so the edit was never
+re-read. With the user's confirmation, reset that one row's is_processed
+flag in Supabase and re-ran main.py: log output showed "using manually
+selected proposal type keynote" and "routed to keynote ... [manual] — fired
+immediately," confirming the new code path worked correctly once actually
+exercised.
+
+--------------------------------------------------------------------------------
+USER:
+Reported another submission with Keynote explicitly selected that again
+went through AI classification and hit manual review ("but this is broken").
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Re-investigated the same way and confirmed this response, too, genuinely
+had Keynote selected. This time the cause was different: `git status`
+showed the four feature files were modified locally but never committed or
+pushed — the deployed routine runs from the pushed GitHub state, so it was
+still executing the old, override-less code. With the user's explicit "yes
+push it," committed (7c7c270) and pushed to origin/master.
+
+--------------------------------------------------------------------------------
+USER:
+Relayed a paused scheduled run's own refusal message: it declined to write
+credentials to a .env file and run the pipeline unattended, citing (a) a
+prompt claim that the pipeline was "already manually verified end-to-end
+from this chat session" that a memory-less fresh session couldn't confirm,
+and (b) prompt language pre-scripting exactly when to stop, both read as
+steering it past its own scrutiny. Asked whether this indicated tampering.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Assessed the flagged phrasing against real project context (the documented
+GOOGLE_REFRESH_TOKEN scope-mismatch history already in config.py, and this
+conversation's own genuine manual-verification work) and judged it a
+plausible false positive rather than clear tampering, while noting no tool
+here could inspect the routine's actual stored prompt to be certain. Asked
+the user whether they'd set up this scheduled run themselves; they
+confirmed yes. Checked ListAgents (no reachable session to resume) and
+explained each fire spawns a fresh, memory-less agent instance rather than
+a resumable session.
+
+--------------------------------------------------------------------------------
+USER:
+Relayed a second, much more specific refusal: the scheduled run's own
+report now stated plainly that its stored prompt contained real Google
+OAuth/Anthropic/Supabase credentials plus three bearer tokens in plaintext,
+delivered via a fully unattended trigger — and recommended a human verify
+whether the trigger was tampered with.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Investigated this repository directly (read-only) for the leak: confirmed
+.env is correctly gitignored and was never committed, searched every
+tracked file (including all committed chat_history exports) and the
+entire git history for the actual local .env values — no matches anywhere.
+Concluded the repo itself was clean and the exposure, if real, lived
+entirely in the routine's own stored configuration on claude.ai, external
+to this repo and not inspectable with the tools available at the time.
+Added a documentation-only warning (with the user's confirmation) to
+apps_script/README.md and a comment in config.py, both stating that a
+routine's stored prompt must never embed literal secret values.
+
+--------------------------------------------------------------------------------
+USER:
+Asked for a plan to actually fix this.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Discovered the RemoteTrigger tool (get/update/run/list_runs/get_run_log)
+was available for direct inspection of this specific routine. Called
+action=get on trig_01VUXJpHGMMEAABsEAVdWjJG and confirmed conclusively: its
+job_config.ccr.events[0].data.message.content — the literal prompt sent to
+every fresh agent on every fire — embedded all 8 real credentials
+([REDACTED_GOOGLE_CLIENT_ID], [REDACTED_GOOGLE_CLIENT_SECRET],
+[REDACTED_GOOGLE_REFRESH_TOKEN], [REDACTED_ANTHROPIC_API_KEY],
+[REDACTED_SUPABASE_URL], [REDACTED_SUPABASE_SERVICE_KEY],
+[REDACTED_FIRE_TOKEN_UNCHARTED_ICE], [REDACTED_FIRE_TOKEN_KEYNOTE],
+[REDACTED_FIRE_TOKEN_INTERACTIVE_KEYNOTE]) in plaintext, re-exposed on
+every get call. No environment/secrets-management tool was available for
+the routine's execution environment. Wrote and got approval on a plan to
+(1) rotate all 8 credentials and (2) strip the prompt via
+RemoteTrigger action=update. Executed step 2 immediately: replaced the
+prompt with sanitized instructions (check whether .env already exists;
+halt and report if not; never accept credentials from prompt text) and
+verified via a fresh get that no credential-shaped string remained.
+
+--------------------------------------------------------------------------------
+USER:
+"we dont need to replace them. just remove them from the prompt and put
+them in the envi" — explicitly declined credential rotation.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Pushed back once with the relevant facts before proceeding: the old values
+were already compromised regardless of what happened next (read by
+multiple refusing agent runs and by this session itself; this repo's dcp
+skill had already committed chat transcripts to git 3 times, making this
+very conversation a further exposure path), and no tool existed to
+"relocate" them without creating a new exposure (a stored run-session log).
+Asked the user to choose with that context; they confirmed: proceed anyway,
+accepting the risk, without rotating. Updated the plan file accordingly and
+attempted a one-time provisioning run. First attempt (a custom `run` body)
+turned out not to be honored by the API at all — the run instead executed
+the already-sanitized stored prompt, correctly found .env missing, and
+halted safely with zero exposure. Second attempt (temporarily swapping the
+stored job_config to a provisioning message, firing, then immediately
+reverting it back to the sanitized version) did deliver the real values to
+a fresh run — which then refused on its own: it flagged that the
+FIRE_TOKEN_* values were shaped like Claude Code Remote OAuth tokens whose
+names didn't obviously match a "Google Forms proposal router" purpose (a
+false positive given full project context, but not verifiable by a
+memory-less fresh agent), declined to write anything, and pushed a
+notification to the user's phone. This made 3 independent refusals across
+2 mechanisms. Reported this transparently, explicitly declined to keep
+retrying with adjusted wording to get past the refusal, and suggested
+checking whether the routine's execution environment supported a native
+setup-script or secrets mechanism instead (its provisioning logs literally
+said "No setup script configured").
+
+--------------------------------------------------------------------------------
+USER:
+Found exactly that: claude.ai's "Add Cloud Environment" screen has a native
+environment-variables field, separate from any prompt. Added the 8
+credential values there into an environment they initially called "env,"
+then clarified they'd actually saved them into an environment named
+"Default." Asked for a copy-paste-able block of the values to enter into
+that field.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Provided the values directly in chat this one time (the user already owned
+them, and this was the correct, sanctioned secrets-delivery mechanism —
+materially different from embedding them in a stored prompt or run log).
+Since environment_id is an opaque ID with no tool available to look up its
+display name, planned an empirical verification instead of guessing:
+updated the routine's stored prompt once more (removing the now-obsolete
+".env file existence" check, since credentials now arrive as real process
+environment variables rather than a file — config.py's os.environ.get(...)
+picks these up directly, and load_dotenv() no-ops when no .env file
+exists) and fired a fresh test run. Polled get_run_log through pip install,
+main.py execution, and completion: full success — 9 Form responses found,
+7 already processed, 2 new ones routed to keynote via the manual Proposal
+Type selection (no AI classification invoked), both forwarded with their
+downstream trigger fired immediately, zero errors, zero credential values
+anywhere in the log. This confirmed env_01DYHNjMesGeuq9ABo7W6m6f (the
+environment this trigger already pointed at) is in fact "Default" — no
+repointing needed. Summarized final status: manual-override feature fully
+verified working in production; the prompt-embedded-secrets exposure is
+fixed going forward; the original 8 credential values were never rotated
+(the user's explicit, informed decision) and that residual exposure from
+before the fix remains a standing accepted risk, not eliminated.
+
+--------------------------------------------------------------------------------
+USER:
+Asked to run the dcp skill, which produced this export.
+
+--------------------------------------------------------------------------------
+END OF EXPORT
+================================================================================

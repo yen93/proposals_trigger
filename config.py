@@ -1,4 +1,13 @@
-"""Loads environment variables and project_vars.txt constants for the router."""
+"""Loads environment variables and project_vars.txt constants for the router.
+
+Every secret below must arrive via a pre-existing .env / environment —
+never via prompt text. Anything (a routine, a script) that invokes main.py
+must ensure .env already exists in the working directory beforehand; it
+must never reconstruct .env from literal values embedded in its own
+instructions, since that means those live secrets sit in plaintext
+wherever that prompt is stored. See apps_script/README.md's "If you're
+configuring the proposal-router-hourly routine itself" section.
+"""
 
 import json
 import os

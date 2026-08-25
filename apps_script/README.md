@@ -48,3 +48,17 @@ into the Form's own Apps Script project by hand, once.
 The token is scoped to this one routine's fire endpoint. If it's ever
 rotated, only step 3 above needs repeating (update the `ROUTINE_FIRE_TOKEN`
 script property) — the committed `.gs` file doesn't change.
+
+## If you're configuring the proposal-router-hourly routine itself
+
+Never paste literal secret values (Google OAuth client secret/refresh
+token, `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_KEY`, any `FIRE_TOKEN_*`) into
+the routine's stored prompt/instructions on claude.ai. The routine's
+execution environment should already have `.env` populated (or equivalent
+secret injection) before the agent starts — the prompt should only need to
+say "run `python main.py`," never "here are the values, write them to .env
+first." Embedding real credentials in a stored prompt means every future
+run re-exposes them in plaintext to whatever reads that prompt. (This
+matters because two separate scheduled runs of this routine correctly
+refused to execute after finding live secrets embedded in their own
+prompt — see this repo's chat history around 2026-08-25.)
