@@ -44,13 +44,26 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 SUPABASE_LOG_TABLE = "proposal_router_logs"
 
 # Must match the exact scope set actually granted to GOOGLE_REFRESH_TOKEN at
-# consent time — this repo shares that token with sales_proposals_automation
-# (same Workspace identity), and Google's refresh grant rejects a requested
-# scope list that doesn't match what was originally consented (invalid_scope),
-# even if this repo only ever calls a subset of these APIs. Only send/read
-# scopes are actually used (gmail.send, drive, forms.responses.readonly);
+# consent time — Google's refresh grant rejects a requested scope list that
+# doesn't match what was originally consented (invalid_scope), even if this
+# repo only ever calls a subset of these APIs. Only send/read scopes are
+# actually used (gmail.send, drive, forms.responses.readonly);
 # gmail.modify/presentations are unused here but must stay listed for the
-# refresh to succeed against the shared token.
+# refresh to succeed against whichever token is configured.
+#
+# IMPORTANT, verified 2026-08-25: this is NOT interchangeable with the
+# refresh token baked into the other 3 sibling routines' deployed job_configs
+# (sales-proposals-automation-hourly, crossing-the-ice-keynote-automation-hourly,
+# interactive-keynote-proposals-automation-hourly) — that token lacks
+# forms.responses.readonly (confirmed by calling Google's oauth2/token
+# endpoint directly and comparing the returned `scope` field for each token;
+# do not assume otherwise from older comments/commit messages in this repo's
+# history, which incorrectly assumed a single fully-shared token before this
+# was checked). This repo's .env must use a token that was actually consented
+# with forms.responses.readonly (e.g. the one already present in
+# sales_proposals_automation's local .env on disk, or a fresh one minted via
+# oauth_setup.py) — using the older shared token here will fail with
+# invalid_scope at the credential-refresh step.
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/gmail.send",
