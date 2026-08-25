@@ -1,0 +1,227 @@
+================================================================================
+CHAT HISTORY EXPORT — 2026-08-25
+Session: Build the "proposal router" — a new 4th automation that lets a
+salesperson submit one Google Form, vision-classifies which of the 3 existing
+proposal pipelines (Uncharted Ice / Keynote / Interactive Keynote) it belongs
+to, and hands it off by email — without touching any of those 3 pipelines.
+================================================================================
+
+NOTE ON REDACTIONS: This session included a RemoteTrigger action=run call
+against the live interactive-keynote-proposals-automation-hourly routine. The
+API response echoed that routine's full stored job_config, which embeds real,
+live credentials (Google OAuth client id/secret/refresh token, Anthropic API
+key, Supabase URL/service key, Fathom API key) in plain text. None of those
+values are reproduced below — every mention of that event is described
+without quoting the credential values.
+
+--------------------------------------------------------------------------------
+USER:
+Laid out a detailed spec for a new "proposal router" repo/routine: 3 existing
+live pipelines (Uncharted Ice, Keynote, Interactive Keynote) each only trigger
+from a Gmail search on an exact hand-typed subject line. Wants a 4th, separate
+repo that gives salespeople one entry point — a 2-field Google Form (demo
+notes file upload + optional free-text notes) — classifies which of the 3
+types it is via OCR/vision reading a circled/checked option on the notes
+sheet, then hands off to the correct existing pipeline by forwarding the
+original attachment as an email carrying that pipeline's expected subject
+line (functionally identical to a salesperson emailing it directly, so none
+of the 3 pipelines' code changes). Gave exact subject substrings and
+trigger_ids for all 3 pipelines, copied from their live job configs, and
+specified that main.py must never call RemoteTrigger itself (that tool only
+exists for a Claude Code agent) — it should print which trigger_id(s) need
+firing, for the routine's own job_config prompt to fire afterward, mirroring
+an existing "Step K" precedent already live in sales_proposals_automation's
+job_config. Also flagged, separately, that Interactive Keynote's Gmail query
+overlaps with Keynote's ("crossing the ice" appears in both), causing
+double-processing — to be fixed later, config-only, with explicit go-ahead.
+Listed manual/administrative steps (new GitHub repo, new Google Form, new
+Supabase table, new routine creation) as out of scope for code, done later.
+
+--------------------------------------------------------------------------------
+ASSISTANT:
+Found the working directory (proposals_trigger) completely empty and not a
+git repo, despite the spec referring to "this repo" as if its code were
+already present. Asked the user where that code actually lives; they pointed
+to a local path, C:\Users\Cloverly\claude_code\sales_proposals_automation.
+Read that repo's real source (config.py, pipeline.py, main.py,
+src/form_intake_service.py, src/ocr_service.py, src/template_selector.py,
+src/gmail_service.py, src/supabase_service.py, src/google_clients.py,
+oauth_setup.py, and its AS_BUILT doc) to ground the new repo's design in
+actual code rather than guesses.
+
+Entered plan mode. Dispatched a Plan subagent with the full background to
+work out a detailed file-by-file design (config.py's ROUTING_TABLE shape, a
+new classifier_service.py forced-tool-call schema, a new gmail_forwarder.py
+since the sibling repo's Gmail code has no attachment support, a new
+Supabase table proposal_router_logs, pipeline.py orchestration, and the
+trigger_ids_to_fire print/parse handoff). The agent also flagged that the
+classifier is unvalidated against real sample sheets and recommended a
+low-confidence handling policy for the user to confirm.
+
+Asked the user two questions: (1) what to do on low classifier confidence —
+user answered it should never auto-forward toward a client-facing pipeline,
+only notify "me or liv" (i.e. julienne and a colleague, Liv) for manual
+review; (2) where the repo should live — user chose this same directory.
+Asked for Liv's email address; got liv@myadventuregroup.com.au.
+
+Wrote the plan file and called ExitPlanMode. User rejected it: "dont
+complicate it... keep the 3 pipelines as is... the flow then decides which
+of the 3 pipeline to run" — read as pushback on how much extra
+decision-framing/verbosity had crept into the written plan, not a change to
+the underlying design. Rewrote the plan file much more concisely around the
+same core flow (form -> classify -> forward-by-email -> print trigger id)
+and re-exited plan mode; approved this time.
+
+Implemented the scaffold: git init in the working directory; created
+config.py (ROUTING_TABLE with the 3 subject/trigger_id pairs given verbatim,
+ROUTER_FORM_ID empty-disables-the-path convention mirrored from the sibling
+repo's INTAKE_FORM_ID, NOTIFICATION_RECIPIENTS = [julienne, liv]),
+project_vars.txt, .env.example, .gitignore, requirements.txt, oauth_setup.py
+(copied from sibling, unmodified pattern), main.py, pipeline.py, and
+src/{__init__,google_clients,router_form_service,classifier_service,
+gmail_forwarder,supabase_service}.py. google_clients.py was trimmed to only
+gmail/drive/forms (no slides — the router never touches Slides).
+classifier_service.py's docstring and tool description explicitly flag that
+it is unvalidated against real demo-notes sheets. gmail_forwarder.py is new
+(MIME-multipart with attachment support, since the sibling repo's Gmail code
+only sends plain text) and builds both the routing forward email and the
+low-confidence manual-review notice. pipeline.py wraps per-response
+processing in try/except, marks Supabase rows success/needs_review/error
+accordingly, and prints "trigger_ids_to_fire: ..." only when non-empty.
+
+Verified: all files parse; config.py loads the real project_vars.txt;
+reordered run_once() so the ROUTER_FORM_ID-unset disabled path is checked
+before building any Google/Supabase clients (so it can run cleanly with no
+credentials at all); ran python main.py in that state and confirmed a clean
+exit with no trigger line printed.
+
+Committing required a git identity, which wasn't configured. Asked the user
+which identity to use, offering to match the sibling repos' existing
+convention (yenCodes <yen93@users.noreply.github.com>, tied to the yen93
+GitHub account the other 3 pipeline repos live under). The user instead
+replied with a GitHub URL, https://github.com/yen93/proposals_trigger,
+revealing they'd already created the empty remote repo under that account.
+Set that same git identity locally (repo-scoped, not global), added the
+remote, made the initial scaffold commit, asked whether to push now, and
+pushed on confirmation.
+
+User then supplied a Google Form URL/ID for the router to read from. That ID
+turned out to be identical to intake_form_id already configured in the
+sibling repo's project_vars.txt — the existing Uncharted-Ice-only pilot form,
+not a new form. Flagged a real risk before proceeding: if the router also
+classified and forwarded submissions from that same form, an "Uncharted Ice"
+submission could get double-processed (once via the sibling's own direct
+form-intake path, again via the router's forwarded email landing back in
+that same pipeline's Gmail-search trigger). Asked the user whether they'd
+meant to reuse this form or link to the wrong one; they confirmed reuse.
+
+Investigated the actual risk by reading the live form's real structure via
+the Forms API (temporarily reusing the sibling repo's real credentials for
+this one read-only check) rather than trusting the sibling repo's own
+possibly-stale documentation/code comments. Found the live form has already
+been simplified to exactly 2 items — "Demo call notes" (file upload) and
+"Additional notes" (text) — with no "Proposal Type" field at all anymore.
+Since the sibling's pilot gate checks a "Proposal Type" answer that no
+longer exists on this form, that gate now always skips every submission —
+meaning there is no real double-processing risk after all, and the router's
+existing 2-field design already matched the live form exactly with no code
+changes needed. Set ROUTER_FORM_ID to this form's ID in project_vars.txt.
+
+Hit a real bug while first testing against the live form: GoogleClients'
+credential refresh failed with invalid_scope, because the router's initially
+declared GOOGLE_SCOPES list was narrower than what was actually granted to
+the shared refresh token at consent time (Google's refresh grant rejects a
+scope list that isn't a match for what was consented). Fixed by declaring
+the exact same scope list as the sibling repo. Committed and pushed both the
+form-ID wiring and the scope fix.
+
+Asked the user whether to create the proposal_router_logs Supabase table now;
+approved. Used the Supabase MCP tools to find the right project by cross-
+referencing table names already known to belong to this system
+(proposal_demo_notes_email_logs, form_demo_notes_intake_logs,
+crossing_the_ice_keynote_proposal_logs, interactive_keynote_proposal_logs all
+present in one project, "MAGTestProject"), then applied a migration creating
+proposal_router_logs with the columns discussed in planning, RLS enabled to
+match the existing tables' convention. Verified it worked via a live query
+from supabase_service.is_processed(). Surfaced, as required by the Supabase
+tooling's own instructions, a pre-existing and unrelated finding: 11 other
+tables in that same project have Row Level Security disabled, exposing them
+to the anon key — explicitly called out as pre-existing and not something
+touched or fixed in this session, offering the remediation SQL if wanted.
+
+User then submitted a real test Form response (a real demo-notes PDF) and
+said no email had been received. Explained the router isn't deployed as a
+live routine yet, so nothing runs on its own — ran python main.py by hand.
+It found the 1 new response, classified it as interactive_keynote at high
+confidence (correctly reading a checked "INTERACTIVE KEYNOTE" box plus a
+handwritten "Interactive Keynote" field on the real sheet), forwarded the
+original PDF as an email to the shared mailbox with subject "interactive
+keynote", logged the outcome to Supabase, and printed
+"trigger_ids_to_fire: trig_01KSh5tdtUWA1BXND9eNgR4R". Verified via the Gmail
+API that the forwarded message really existed (labels UNREAD/SENT/INBOX,
+correct To/From/Subject headers) since the user had said they didn't see it.
+
+User asked why the identified downstream routine hadn't actually run.
+Clarified the intended design: main.py only ever prints which trigger_id(s)
+need firing; actually calling RemoteTrigger is deliberately left to whichever
+agent runs the script (either the future routine's own job_config prompt in
+production, or this chat session when run manually) — and that step hadn't
+happened yet because firing a real downstream automation felt like a live
+action worth confirming first. User clarified their intended architecture:
+they plan to keep the eventual proposal-router-hourly routine's own hourly
+cron disabled/paused, with the logic being that firing the identified
+downstream routine is simply the last step of processing a submission,
+regardless of whether the router itself runs on autopilot. Agreed to create
+that future routine with enabled=false by default, matching the sibling
+repo's own routine convention.
+
+With confirmation, called RemoteTrigger action=run against
+trig_01KSh5tdtUWA1BXND9eNgR4R (interactive-keynote-proposals-automation-
+hourly) for this test submission. [The API response for this call echoed
+that routine's full stored job_config prompt, which embeds real, live
+credentials for Google/Anthropic/Supabase/Fathom in plain text — not
+reproduced or logged anywhere by the assistant, per the redaction note
+above.] Polled the run via RemoteTrigger get_run_log until it completed:
+the routine cloned its repo, wrote its own .env from the job_config's
+credentials, ran its pipeline, found 3 matching emails (2 newly processed,
+1 already deduped from a prior run), and reported success with no credential
+issues. Queried the downstream pipeline's own Supabase log table directly to
+confirm the specific forwarded test message was one of the two successes:
+status "needs_review" (only because that pipeline's own logo-auto-guess QA
+step flagged it, unrelated to the router), with a real generated Google
+Slides proposal link for a client named "Whiddon," event date 24/11.
+Reported this as an end-to-end confirmation for the Interactive Keynote path
+specifically, and recommended testing a Keynote and an Uncharted Ice sample
+too before trusting the classifier unattended for all 3 types.
+
+User asked to create a skill at .claude/skills/dcp. Read the sibling repo's
+existing run-proposal-pipeline skill for a structural reference and asked
+whether "dcp" should also auto-fire any identified downstream trigger after
+running the router, assuming it would be analogous. User corrected this:
+dcp is unrelated to running the pipeline — it documents, commits, and
+pushes updates — and pointed to check its own already-existing file rather
+than design one from scratch. A repo-wide search found dcp skill folders
+already present (as plain files on disk, not yet committed) in this repo
+and several sibling repos (batch_mailer, crossing_the_ice_keynote,
+googe_reviews_2). The user interrupted a broader directory-listing command
+and pointed directly at this repo's own .claude/skills/dcp/SKILL.md to read
+instead. Its contents: a two-step "document, commit, push" skill — (1) save
+the current chat transcript to chat_history/<timestamp>_chat_history.txt
+using a fixed template, redacting any real secrets seen in the conversation;
+(2) commit and push everything to the configured git remote, refusing to
+proceed if the repo or remote isn't already set up, and flagging (not
+silently staging) anything that looks like an uncommitted credential.
+Committed and pushed that already-existing SKILL.md file into the repo so
+it's tracked like the equivalent skill in the sibling repos.
+
+User tried invoking /dcp and got "unknown command." Explained that Claude
+Code discovers project skills at session start, not live — since dcp was
+only added to this repo's git history after the current session began, it
+won't be recognized until the session restarts.
+
+User asked to run the skill manually in the meantime, which produced this
+export.
+
+--------------------------------------------------------------------------------
+END OF EXPORT
+================================================================================
