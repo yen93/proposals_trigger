@@ -45,7 +45,14 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REFRESH_TOKEN = os.environ.get("GOOGLE_REFRESH_TOKEN", "")
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+# Deliberately NOT read from "ANTHROPIC_API_KEY": on claude.ai cloud
+# environments that exact name is reserved for the Claude Code session's own
+# account-based authentication and is silently never injected into the
+# process environment for user code to read (confirmed empirically —
+# os.environ.get("ANTHROPIC_API_KEY") returns "" even after it's saved in
+# the environment's variable UI). classifier_service.py's own direct
+# Anthropic SDK calls need their own separately-named key instead.
+ANTHROPIC_API_KEY = os.environ.get("CLASSIFIER_ANTHROPIC_API_KEY", "")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")

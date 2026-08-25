@@ -52,13 +52,23 @@ script property) — the committed `.gs` file doesn't change.
 ## If you're configuring the proposal-router-hourly routine itself
 
 Never paste literal secret values (Google OAuth client secret/refresh
-token, `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_KEY`, any `FIRE_TOKEN_*`) into
-the routine's stored prompt/instructions on claude.ai. The routine's
-execution environment should already have `.env` populated (or equivalent
-secret injection) before the agent starts — the prompt should only need to
-say "run `python main.py`," never "here are the values, write them to .env
-first." Embedding real credentials in a stored prompt means every future
-run re-exposes them in plaintext to whatever reads that prompt. (This
-matters because two separate scheduled runs of this routine correctly
-refused to execute after finding live secrets embedded in their own
-prompt — see this repo's chat history around 2026-08-25.)
+token, `CLASSIFIER_ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_KEY`, any
+`FIRE_TOKEN_*`) into the routine's stored prompt/instructions on claude.ai.
+The routine's execution environment should already have these provisioned
+as real environment variables (or an existing `.env`) before the agent
+starts — the prompt should only need to say "run `python main.py`," never
+"here are the values, write them to .env first." Embedding real
+credentials in a stored prompt means every future run re-exposes them in
+plaintext to whatever reads that prompt. (This matters because two
+separate scheduled runs of this routine correctly refused to execute after
+finding live secrets embedded in their own prompt — see this repo's chat
+history around 2026-08-25.)
+
+**Do not name the Anthropic key variable `ANTHROPIC_API_KEY`** on a
+claude.ai cloud environment — that exact name is reserved for the Claude
+Code session's own account-based authentication and is silently never
+injected into the process environment for user code to read, even after
+saving it in the environment's variable UI (confirmed empirically: it
+showed up in the UI, but `os.environ.get("ANTHROPIC_API_KEY")` still
+returned empty inside the running pipeline). Use `CLASSIFIER_ANTHROPIC_API_KEY`
+instead, matching `config.py` and `.env.example`.
